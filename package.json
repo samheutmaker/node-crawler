@@ -23,6 +23,7 @@
   "dependencies": {
     "lodash": "^4.11.2",
     "redis": "^2.5.3",
+    "staff": "^1.0.1",
     "x-ray": "^2.3.0"
   }
 }
