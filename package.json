@@ -21,9 +21,10 @@
   },
   "homepage": "https://github.com/samheutmaker/node-crawler#readme",
   "dependencies": {
+    "body-parser": "^1.15.1",
+    "express": "^4.13.4",
     "lodash": "^4.11.2",
     "redis": "^2.5.3",
-    "staff": "^1.0.1",
     "x-ray": "^2.3.0"
   }
 }

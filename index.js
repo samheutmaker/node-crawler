@@ -1,127 +1,137 @@
 const fs = require('fs');
 const xray = require('x-ray')();
-const s = require('staff');
+const h = require(__dirname + '/lib/helpers');
 const _ = require('lodash');
-var rClient = require(__dirname + '/lib/redis-connect');
+const rClient = require(__dirname + '/lib/redis-connect');
 
-const urlToIndex = process.argv[3] || 'https://www.distelli.com/docs';
+// Read config.son
+try {
+  const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+} catch (e) {
+  console.log('There was an error reading the configuration file');
+}
 
-// Initialize
-crawlForLinks(urlToIndex, 2);
+// Set congfiguration variables
+const startingUrl = config.url || process.argv[3];
+const limit = parseInt(config.linkBuild) || process.argv[4];
+
+
+
+
+var tasks = [buildLinks, populateRedisFromKeys];
+
+tasks.reduce(function(cur, next) {
+  return cur.then(next);
+}, Promise.resolve()).then(function() {
+  console.log('Complete');
+});
+
+
+
 
 // Build Links Recursively and stores them in Redis
-function crawlForLinks(startingUrl, limit) {
+function buildLinks() {
 
-  // Holds URLS
-  var urlHolder = [];
+  return new Promise(function(resolve, reject) {
 
-  // Add one url as seed
-  urlHolder.push(startingUrl);
+    // Holds URLS
+    var urlHolder = [];
 
-  // For tracking recursion
-  var called = 0;
+    // Add one url as seed
+    urlHolder.push(startingUrl);
 
-  // Initialize
-  crawlHeldLinks();
+    // For tracking recursion
+    var called = 0;
+
+    // Initialize
+    crawlHeldLinks();
 
 
-  // -== Called Recursively to build links
-  function crawlHeldLinks() {
-    // Track call
-    called++
-    // Record length
-    var currentLen = urlHolder.length;
+    // -== Called Recursively to build links
+    function crawlHeldLinks() {
+      // Track call
+      called++
+      // Record length
+      var currentLen = urlHolder.length;
+      console.log('hit');
+      // Scrape links
+      h.waitAndFire(0, urlHolder.length, function(x) {
 
-    // Scrape links
-    waitAndFire(0, urlHolder.length, function(x) {
-      xray(urlHolder[x], ['a @href'])(function(err, content) {
-        // Append new links
-        urlHolder = urlHolder.concat(content);
-        // Remove Duplicates
-        urlHolder = s.removeDuplicates(urlHolder);
-        // Remove all that dont fit url
-        urlHolder = removeAllWithout(urlHolder, startingUrl);
+        xray(urlHolder[x], ['a @href'])(function(err, content) {
+          if (err) reject(err);
+          // Append new links
+          urlHolder = urlHolder.concat(content);
+          // Remove Duplicates
+          urlHolder = h.removeDuplicates(urlHolder);
+          // Remove all that dont fit url
+          urlHolder = h.removeAllWithout(urlHolder, startingUrl);
 
-        // Log
-        console.log(urlHolder);
-        console.log(currentLen)
-        console.log(x);
+          // Log
+          console.log(urlHolder);
+          console.log(currentLen)
+          console.log(x);
 
-        // Call again with new links or console.log all links
-        if (x === currentLen - 1) {
-          if (called === limit) {
-            fs.writeFileSync('links-html.json', JSON.stringify(urlHolder));
+          // Call again with new links or console.log all links
+          if (x === currentLen - 1) {
+            if (called === limit) {
+              // Create hash
+              var redisHash = {};
 
-            // Create hash
-            var redisHash = {};
+              // Add all links Redis as keys and values
+              _.each(urlHolder, function(linkToHash, linkIndex) {
+                rClient.set(linkToHash, linkToHash);
+              });
 
-            // Add all links Redis
-            _.each(urlHolder, function(linkToHash, linkIndex) {
-              rClient.set(linkToHash, linkToHash);
-            });
+              // Log
+              console.log('Finished');
+              resolve();
 
-           	// Scrape Content
-            getContent();
-
-            // Log
-            console.log('Finished');
+            } else {
+              crawlHeldLinks(urlHolder);
+              console.log('Restart Recursion:' + called);
+            }
 
           } else {
-            crawlHeldLinks(urlHolder);
-            console.log('Restart Recursion:' + called);
+            console.log('Continuing');
           }
 
-        } else {
-          console.log('Continuing');
-        }
-
+        });
       });
-    });
 
-  };
+    };
+  })
 }; // End crawlForLinks 
 
 
 // Scrape all content from links in Redis
-function getContent() {
-  rClient.keys('*', function(err, reply) {
-  	var replyArray = _.map(reply, function(el, i) {
-  		return el;
-  	});
+function populateRedisFromKeys() {
+  return new Promise(function(resolve, reject) {
+    console.log('Begin Populating Redis');
 
-    waitAndFire(0, replyArray.length, function(x) {
-      xray(replyArray[x], 'body @text')(function(err, content) {
-   		if(err) {
-   			console.log(err);
-   			console.log('There was an error scraping');
-   		} else {
-   			rClient.set(replyArray[x], content, function(err, reply1) {
-   				console.log(reply1);
-   			});
-   		}
+    // Get all key from redis
+    rClient.keys('*', function(err, reply) {
 
+      // Create an array of URLS out of redis keys
+      var replyArray = _.map(reply, function(el, i) {
+        return el;
       });
-    }); 
-  });
-};
 
+      // Iterate over URL array 1/second and scrape content
+      h.waitAndFire(0, replyArray.length, function(x) {
+        xray(replyArray[x], 'body @text')(function(err, content) {
+          if (err) {
+            reject(err);
+          } else {
+            rClient.set(replyArray[x], content, function(err, reply1) {
+              console.log(reply1);
+            });
+          }
+        });
 
-
-// --=== (Mostly) Functional Helpers
-
-// Returns only string that have
-function removeAllWithout(array, stringToCheckFor) {
-  return _.filter(array, function(el, i) {
-    return (el.substr(0, stringToCheckFor.length) === stringToCheckFor) ? true : false
-  });
-};
-
-// Executes Callback every one second
-function waitAndFire(min, max, callback) {
-  if (min < max) {
-    setTimeout(function() {
-      callback(min);
-      waitAndFire(++min, max, callback);
-    }, 1000);
-  }
+        if (x === replyArray.length - 2) {
+          resolve();
+        }
+      });
+    });
+  })
 };
