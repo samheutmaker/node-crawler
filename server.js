@@ -1,6 +1,7 @@
 const express = require('express');
 const app = express();
-const jsonParser = require('body-parser').json();
+const bodyParser = require('body-parser');
+const jsonParser = bodyParser.json();
 const _ = require('lodash');
 const h = require(__dirname + '/lib/helpers');
 const rClient = require(__dirname + '/lib/redis-connect');
@@ -11,16 +12,23 @@ const PORT = process.env.PORT || 3000;
 const searchRouter = express.Router();
 
 
+// Headers
+app.use(function(req, res, next) {
+  res.header('Access-Control-Allow-Origin', 'http://localhost:1313');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Methods', 'POST');
+  next();
+});
+
+// Body Parsing
+app.use(bodyParser.urlencoded({ extended: true })); 
+
+
+// Terms to ignore
 var termsToIgnore = ['and', 'but', 'with', 'or'];
 
 
-
-
-// Sort by count
-
-
-
-
+// Search Route
 searchRouter.post('/search', jsonParser, (req, res) => {
   try {
 
@@ -30,7 +38,6 @@ searchRouter.post('/search', jsonParser, (req, res) => {
 
     // Get all keys
     rClient.keys('*', function(err, allItems) {
-
       // Check for matches 
       var results = _.map(allItems, function(el, key) {
         var toReturn = {
@@ -62,6 +69,7 @@ searchRouter.post('/search', jsonParser, (req, res) => {
 
     });
 
+
   } catch (e) {
     res.status(500).json({
       msg: 'There was an error'
@@ -69,7 +77,6 @@ searchRouter.post('/search', jsonParser, (req, res) => {
   }
 
 });
-
 
 app.use('/', searchRouter);
 
