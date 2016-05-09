@@ -2,6 +2,7 @@ const express = require('express');
 const app = express();
 const jsonParser = require('body-parser').json();
 const _ = require('lodash');
+const h = require(__dirname + '/lib/helpers');
 const rClient = require(__dirname + '/lib/redis-connect');
 
 const PORT = process.env.PORT || 3000;
@@ -10,14 +11,27 @@ const PORT = process.env.PORT || 3000;
 const searchRouter = express.Router();
 
 
+var termsToIgnore = ['and', 'but', 'with', 'or'];
+
+
+
+
+// Sort by count
+
+
 
 
 searchRouter.post('/search', jsonParser, (req, res) => {
   try {
-    var query = req.body.query;
 
+    var query = req.body.query.split(" ");
+    // Remove Terms
+    query = h.removeFromArray(query, termsToIgnore);
+
+    // Get all keys
     rClient.keys('*', function(err, allItems) {
 
+      // Check for matches 
       var results = _.map(allItems, function(el, key) {
         var toReturn = {
           url: el,
@@ -33,22 +47,17 @@ searchRouter.post('/search', jsonParser, (req, res) => {
         return toReturn;
       });
 
+      // Filter out zero
       results = _.filter(results, function(item, itemIndex) {
         return (item.count > 0) ? true : false;
       });
 
-      function sortByCount(a, b) {
-        if (a.count < b.count)
-          return 1;
-        else if (a.count > b.count)
-          return -1;
-        else
-          return 0;
-      };
-
-      results = results.sort(sortByCount);
+      // Sort
+      results = results.sort(h.sortByCount);
+      // Truncate
       results.length = 10;
 
+      // Send results
       res.status(200).json(results);
 
     });
