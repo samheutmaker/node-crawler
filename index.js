@@ -53,7 +53,6 @@ function buildLinks() {
       called++
       // Record length
       var currentLen = urlHolder.length;
-      console.log('hit');
       // Scrape links
       h.waitAndFire(0, urlHolder.length, function(x) {
 
