@@ -19,8 +19,6 @@ var termsToIgnore = ['and', 'but', 'with', 'or'];
 // Sort by count
 
 
-
-
 searchRouter.post('/search', jsonParser, (req, res) => {
   try {
 
